@@ -357,12 +357,12 @@ export default function App() {
   // ULTRA FAST REFRESH INTERVAL LOOP (Dropped from 4s down to 1s)
   useEffect(() => {
     const symbol = BINANCE_SYMBOLS[ASSETS[activeAsset]];
-    fetchBinancePrice(symbol).then(setCurrentPrice);
-    fetchBinanceKlines(symbol).then(setChartData);
+    fetchBinancePrice(symbol).then(setCurrentPrice).catch(() => {});
+    fetchBinanceKlines(symbol).then(setChartData).catch(() => {});
 
     const interval = setInterval(() => {
-      fetchBinancePrice(symbol).then(setCurrentPrice);
-      fetchBinanceKlines(symbol).then(setChartData); // Keep the chart moving live!
+      fetchBinancePrice(symbol).then(setCurrentPrice).catch(() => {});
+      fetchBinanceKlines(symbol).then(setChartData).catch(() => {}); // Keep the chart moving live!
     }, 1000);
 
     return () => clearInterval(interval);
@@ -380,9 +380,14 @@ export default function App() {
       const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
       const marketContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
-      const amountWei = ethers.utils.parseUnits(betAmount, 6);
+      const amount = Number(betAmount);
+      if (!amount || amount < 1 || !Number.isFinite(amount)) {
+        showToast("Enter a valid bet amount", "error");
+        setLoading(false);
+        return;
+      }
+      const amountWei = ethers.utils.parseUnits(String(amount), 6);
       showToast("Checking allowance...", "info");
-      
       const allowance = await usdcContract.allowance(account, CONTRACT_ADDRESS);
       if (allowance.lt(amountWei)) {
         showToast("Approving USDC spending...", "info");
@@ -413,6 +418,7 @@ export default function App() {
   };
 
   const handleSettle = async (betId) => {
+    if (!account) return connectWallet();
     try {
       setLoading(true);
       const signer = await getProviderOrSigner(true);

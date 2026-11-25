@@ -560,7 +560,7 @@ export default function App() {
               <div style={{ width: "100%", height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <XAxis dataKey="time" type="category" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
+                    <XAxis dataKey="time" type="category" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 8 }} />
                     <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                     <Tooltip content={<CustomTooltip />} />
                     <Line type="monotone" dataKey="price" stroke={ASSET_COLORS[ASSETS[activeAsset]]} strokeWidth={2} dot={false} />

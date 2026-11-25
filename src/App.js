@@ -234,6 +234,36 @@ async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
   }));
 }
 
+// ─── WEBSOCKET ───────────────────────────────────────────────────────────────
+function createReconnectingWebSocket(url, onMessage) {
+  let ws = null;
+  let timer = null;
+  let attempts = 0;
+
+  function connect() {
+    ws = new WebSocket(url);
+    ws.onopen = () => { attempts = 0; };
+    ws.onmessage = (event) => {
+      try { onMessage(JSON.parse(event.data)); } catch (_) {}
+    };
+    ws.onclose = () => {
+      attempts += 1;
+      const delay = Math.min(1000 * 2 ** attempts, 30000);
+      timer = setTimeout(connect, delay);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+
+  return {
+    close: () => {
+      if (timer) clearTimeout(timer);
+      if (ws) ws.close();
+    },
+  };
+}
+
 export default function App() {
   const [tab, setTab] = useState("trade");
   const [activeAsset, setActiveAsset] = useState(0); // 0=BTC, 1=ETH, 2=SOL
@@ -354,18 +384,55 @@ export default function App() {
     }
   }, [account, lbTab]);
 
-  // ULTRA FAST REFRESH INTERVAL LOOP (Dropped from 4s down to 1s)
+  // Live Binance WebSocket feeds (price + 1m klines)
   useEffect(() => {
     const symbol = BINANCE_SYMBOLS[ASSETS[activeAsset]];
+
+    // Seed with REST so data appears immediately
     fetchBinancePrice(symbol).then(setCurrentPrice).catch(() => {});
     fetchBinanceKlines(symbol).then(setChartData).catch(() => {});
 
-    const interval = setInterval(() => {
-      fetchBinancePrice(symbol).then(setCurrentPrice).catch(() => {});
-      fetchBinanceKlines(symbol).then(setChartData).catch(() => {}); // Keep the chart moving live!
-    }, 1000);
+    const priceSocket = createReconnectingWebSocket(
+      `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@ticker`,
+      (data) => {
+        if (data.c) setCurrentPrice(parseFloat(data.c));
+      }
+    );
 
-    return () => clearInterval(interval);
+    const klineSocket = createReconnectingWebSocket(
+      `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_1m`,
+      (data) => {
+        const k = data.k;
+        if (!k) return;
+        const klineTime = new Date(k.t).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        setChartData((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.time === klineTime) {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              time: klineTime,
+              price: parseFloat(k.c),
+              open: parseFloat(k.o),
+            };
+            return updated;
+          }
+          const next = [...prev, {
+            time: klineTime,
+            price: parseFloat(k.c),
+            open: parseFloat(k.o),
+          }];
+          return next.slice(-60);
+        });
+      }
+    );
+
+    return () => {
+      priceSocket.close();
+      klineSocket.close();
+    };
   }, [activeAsset]);
 
   useEffect(() => {

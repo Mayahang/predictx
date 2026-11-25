@@ -216,6 +216,14 @@ function formatPnL(raw) {
   return (n >= 0 ? "+" : "") + n.toFixed(2);
 }
 
+function formatTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 async function fetchBinancePrice(symbol) {
   const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
   const data = await res.json();
@@ -228,7 +236,7 @@ async function fetchBinanceKlines(symbol, interval = "1m", limit = 30) {
   );
   const data = await res.json();
   return data.map((k) => ({
-    time: new Date(k[0]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    time: formatTime(k[0]),
     price: parseFloat(k[4]),
     open: parseFloat(k[1]),
   }));
@@ -404,10 +412,7 @@ export default function App() {
       (data) => {
         const k = data.k;
         if (!k) return;
-        const klineTime = new Date(k.t).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        const klineTime = formatTime(k.t);
         setChartData((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.time === klineTime) {
@@ -560,7 +565,7 @@ export default function App() {
               <div style={{ width: "100%", height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <XAxis dataKey="time" type="category" interval={0} stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 8 }} />
+                    <XAxis dataKey="time" type="category" interval={1} stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
                     <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                     <Tooltip content={<CustomTooltip />} />
                     <Line type="monotone" dataKey="price" stroke={ASSET_COLORS[ASSETS[activeAsset]]} strokeWidth={2} dot={false} />

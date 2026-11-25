@@ -222,7 +222,7 @@ async function fetchBinancePrice(symbol) {
   return parseFloat(data.price);
 }
 
-async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
+async function fetchBinanceKlines(symbol, interval = "1m", limit = 30) {
   const res = await fetch(
     `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
   );
@@ -232,6 +232,36 @@ async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
     price: parseFloat(k[4]),
     open: parseFloat(k[1]),
   }));
+}
+
+// ─── WEBSOCKET ───────────────────────────────────────────────────────────────
+function createReconnectingWebSocket(url, onMessage) {
+  let ws = null;
+  let timer = null;
+  let attempts = 0;
+
+  function connect() {
+    ws = new WebSocket(url);
+    ws.onopen = () => { attempts = 0; };
+    ws.onmessage = (event) => {
+      try { onMessage(JSON.parse(event.data)); } catch (_) {}
+    };
+    ws.onclose = () => {
+      attempts += 1;
+      const delay = Math.min(1000 * 2 ** attempts, 30000);
+      timer = setTimeout(connect, delay);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+
+  return {
+    close: () => {
+      if (timer) clearTimeout(timer);
+      if (ws) ws.close();
+    },
+  };
 }
 
 export default function App() {
@@ -354,18 +384,55 @@ export default function App() {
     }
   }, [account, lbTab]);
 
-  // ULTRA FAST REFRESH INTERVAL LOOP (Dropped from 4s down to 1s)
+  // Live Binance WebSocket feeds (price + 1m klines)
   useEffect(() => {
     const symbol = BINANCE_SYMBOLS[ASSETS[activeAsset]];
-    fetchBinancePrice(symbol).then(setCurrentPrice);
-    fetchBinanceKlines(symbol).then(setChartData);
 
-    const interval = setInterval(() => {
-      fetchBinancePrice(symbol).then(setCurrentPrice);
-      fetchBinanceKlines(symbol).then(setChartData); // Keep the chart moving live!
-    }, 1000);
+    // Seed with REST so data appears immediately
+    fetchBinancePrice(symbol).then(setCurrentPrice).catch(() => {});
+    fetchBinanceKlines(symbol).then(setChartData).catch(() => {});
 
-    return () => clearInterval(interval);
+    const priceSocket = createReconnectingWebSocket(
+      `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@ticker`,
+      (data) => {
+        if (data.c) setCurrentPrice(parseFloat(data.c));
+      }
+    );
+
+    const klineSocket = createReconnectingWebSocket(
+      `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_1m`,
+      (data) => {
+        const k = data.k;
+        if (!k) return;
+        const klineTime = new Date(k.t).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        setChartData((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.time === klineTime) {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              time: klineTime,
+              price: parseFloat(k.c),
+              open: parseFloat(k.o),
+            };
+            return updated;
+          }
+          const next = [...prev, {
+            time: klineTime,
+            price: parseFloat(k.c),
+            open: parseFloat(k.o),
+          }];
+          return next.slice(-30);
+        });
+      }
+    );
+
+    return () => {
+      priceSocket.close();
+      klineSocket.close();
+    };
   }, [activeAsset]);
 
   useEffect(() => {
@@ -380,9 +447,14 @@ export default function App() {
       const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
       const marketContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
-      const amountWei = ethers.utils.parseUnits(betAmount, 6);
+      const amount = Number(betAmount);
+      if (!amount || amount < 1 || !Number.isFinite(amount)) {
+        showToast("Enter a valid bet amount", "error");
+        setLoading(false);
+        return;
+      }
+      const amountWei = ethers.utils.parseUnits(String(amount), 6);
       showToast("Checking allowance...", "info");
-      
       const allowance = await usdcContract.allowance(account, CONTRACT_ADDRESS);
       if (allowance.lt(amountWei)) {
         showToast("Approving USDC spending...", "info");
@@ -413,6 +485,7 @@ export default function App() {
   };
 
   const handleSettle = async (betId) => {
+    if (!account) return connectWallet();
     try {
       setLoading(true);
       const signer = await getProviderOrSigner(true);
@@ -487,7 +560,7 @@ export default function App() {
               <div style={{ width: "100%", height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <XAxis dataKey="time" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
+                    <XAxis dataKey="time" type="category" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
                     <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                     <Tooltip content={<CustomTooltip />} />
                     <Line type="monotone" dataKey="price" stroke={ASSET_COLORS[ASSETS[activeAsset]]} strokeWidth={2} dot={false} />

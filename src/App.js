@@ -222,7 +222,7 @@ async function fetchBinancePrice(symbol) {
   return parseFloat(data.price);
 }
 
-async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
+async function fetchBinanceKlines(symbol, interval = "1m", limit = 30) {
   const res = await fetch(
     `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
   );
@@ -424,7 +424,7 @@ export default function App() {
             price: parseFloat(k.c),
             open: parseFloat(k.o),
           }];
-          return next.slice(-60);
+          return next.slice(-30);
         });
       }
     );
@@ -560,7 +560,7 @@ export default function App() {
               <div style={{ width: "100%", height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <XAxis dataKey="time" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
+                    <XAxis dataKey="time" type="category" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
                     <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                     <Tooltip content={<CustomTooltip />} />
                     <Line type="monotone" dataKey="price" stroke={ASSET_COLORS[ASSETS[activeAsset]]} strokeWidth={2} dot={false} />
